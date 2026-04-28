@@ -4,14 +4,23 @@ const dom = {
   nameInput: document.querySelector("#name"),
   roomInput: document.querySelector("#room-id"),
   secretInput: document.querySelector("#room-secret"),
+  adminPasswordInput: document.querySelector("#admin-password"),
   messageInput: document.querySelector("#message-input"),
   sendBtn: document.querySelector("#send-btn"),
+  leaveBtn: document.querySelector("#leave-btn"),
+  endSessionBtn: document.querySelector("#end-session-btn"),
   messages: document.querySelector("#messages"),
   roomLabel: document.querySelector("#room-label"),
+  sessionMode: document.querySelector("#session-mode"),
+  archiveState: document.querySelector("#archive-state"),
+  adminBadge: document.querySelector("#admin-badge"),
   presenceCount: document.querySelector("#presence-count"),
   inviteLink: document.querySelector("#invite-link"),
   copyLinkBtn: document.querySelector("#copy-link-btn"),
   typingIndicator: document.querySelector("#typing-indicator"),
+  sessionBannerText: document.querySelector("#session-banner-text"),
+  sessionLinkState: document.querySelector("#session-link-state"),
+  historyState: document.querySelector("#history-state"),
   cameraBtn: document.querySelector("#camera-btn"),
   screenBtn: document.querySelector("#screen-btn"),
   muteBtn: document.querySelector("#mute-btn"),
@@ -23,15 +32,15 @@ const dom = {
 };
 
 const rtcConfig = {
-  iceServers: [
-    { urls: "stun:stun.l.google.com:19302" }
-  ]
+  iceServers: [{ urls: "stun:stun.l.google.com:19302" }]
 };
 
 const state = {
   roomId: "",
   clientId: "",
   name: "",
+  secret: "",
+  adminPassword: "",
   keyMaterial: null,
   peers: new Map(),
   remoteCards: new Map(),
@@ -41,7 +50,8 @@ const state = {
   typingTimeout: null,
   mute: false,
   pollActive: false,
-  pollController: null
+  pollController: null,
+  isAdmin: false
 };
 
 async function deriveChatKey(secret, roomId) {
@@ -108,23 +118,41 @@ async function decryptPayload(envelope) {
 function setConnectedUi(connected) {
   dom.messageInput.disabled = !connected;
   dom.sendBtn.disabled = !connected;
+  dom.leaveBtn.disabled = !connected;
+  dom.copyLinkBtn.disabled = !connected;
   dom.cameraBtn.disabled = !connected;
   dom.screenBtn.disabled = !connected;
   dom.muteBtn.disabled = !connected;
-  dom.copyLinkBtn.disabled = !connected;
+  dom.endSessionBtn.disabled = !connected || !state.isAdmin;
 }
 
 function renderPresence() {
   dom.presenceCount.textContent = state.clientId ? `${state.participants.size + 1} online` : "0 online";
 }
 
-function clearMessages() {
-  dom.messages.innerHTML = "";
+function resetMessages() {
+  dom.messages.innerHTML = `
+    <div class="empty-state">
+      <strong>No room messages yet</strong>
+      <p>When the admin reopens an archived session, older encrypted messages will appear here after the correct room secret decrypts them.</p>
+    </div>
+  `;
 }
 
-function appendMessage(message, isSelf) {
+function clearEmptyState() {
+  const empty = dom.messages.querySelector(".empty-state");
+  if (empty) {
+    empty.remove();
+  }
+}
+
+function appendMessage(message, isSelf, kind = "user") {
+  clearEmptyState();
   const node = dom.messageTemplate.content.firstElementChild.cloneNode(true);
   node.classList.toggle("self", isSelf);
+  if (kind === "system") {
+    node.classList.add("system");
+  }
   node.querySelector(".message-name").textContent = message.name;
   node.querySelector(".message-time").textContent = new Date(message.timestamp).toLocaleTimeString([], {
     hour: "2-digit",
@@ -135,8 +163,30 @@ function appendMessage(message, isSelf) {
   dom.messages.scrollTop = dom.messages.scrollHeight;
 }
 
+function appendSystemMessage(text) {
+  appendMessage(
+    {
+      name: "System",
+      text,
+      timestamp: Date.now()
+    },
+    false,
+    "system"
+  );
+}
+
 function setTypingLabel(label) {
   dom.typingIndicator.textContent = label;
+}
+
+function updateSessionUi(mode) {
+  dom.roomLabel.textContent = state.clientId ? `#${state.roomId}` : "Not connected";
+  dom.sessionMode.textContent = mode;
+  dom.archiveState.textContent = mode === "Reopened archive" ? "Restored" : "Live";
+  dom.adminBadge.textContent = state.isAdmin ? "Admin" : "Guest";
+  dom.sessionBannerText.textContent = state.clientId
+    ? `Room #${state.roomId} is active. Two or more devices can join with the same room number and secret phrase.`
+    : "Join a room to start the multi-device session.";
 }
 
 function buildInviteLink() {
@@ -144,38 +194,39 @@ function buildInviteLink() {
     return "";
   }
 
-  const inviteUrl = new URL(window.location.href);
-  inviteUrl.searchParams.set("room", state.roomId);
-  inviteUrl.hash = "";
-  return inviteUrl.toString();
+  const url = new URL(window.location.href);
+  url.searchParams.set("room", state.roomId);
+  url.hash = "";
+  return url.toString();
 }
 
 function updateInviteLink() {
   const inviteUrl = state.clientId ? buildInviteLink() : "";
 
   if (!inviteUrl) {
-    dom.inviteLink.textContent = "Join a room to generate a share link.";
+    dom.inviteLink.textContent = "Join a room to generate a room-specific invite link.";
+    dom.sessionLinkState.textContent = "No";
     dom.copyLinkBtn.disabled = true;
     return;
   }
 
   dom.inviteLink.textContent = inviteUrl;
+  dom.sessionLinkState.textContent = "Yes";
   dom.copyLinkBtn.disabled = false;
   window.history.replaceState({}, "", inviteUrl);
 }
 
 async function copyInviteLink() {
   const inviteUrl = buildInviteLink();
-
   if (!inviteUrl) {
     return;
   }
 
   await navigator.clipboard.writeText(inviteUrl);
-  const previousLabel = dom.copyLinkBtn.textContent;
+  const previous = dom.copyLinkBtn.textContent;
   dom.copyLinkBtn.textContent = "Copied";
   setTimeout(() => {
-    dom.copyLinkBtn.textContent = previousLabel;
+    dom.copyLinkBtn.textContent = previous;
   }, 1400);
 }
 
@@ -193,7 +244,9 @@ async function sendEvent(event) {
 
 function ensureRemoteCard(peerId, name) {
   if (state.remoteCards.has(peerId)) {
-    return state.remoteCards.get(peerId);
+    const existing = state.remoteCards.get(peerId);
+    existing.querySelector(".peer-name").textContent = name || "Peer";
+    return existing;
   }
 
   const node = dom.remoteVideoTemplate.content.firstElementChild.cloneNode(true);
@@ -214,16 +267,26 @@ function removeRemoteCard(peerId) {
 
 function updateLocalStreamLabel() {
   if (state.screenStream) {
-    dom.selfStreamLabel.textContent = "Sharing screen";
+    dom.selfStreamLabel.textContent = "Screen sharing";
+  } else if (state.localStream) {
+    dom.selfStreamLabel.textContent = state.mute ? "Mic muted" : "Camera live";
+  } else {
+    dom.selfStreamLabel.textContent = "No media";
+  }
+
+  dom.cameraBtn.textContent = state.localStream ? "Camera Ready" : "Start Camera";
+  dom.screenBtn.textContent = state.screenStream ? "Screen Live" : "Share Screen";
+  dom.muteBtn.textContent = state.mute ? "Unmute Mic" : "Mute Mic";
+}
+
+function stopTrackGroup(stream) {
+  if (!stream) {
     return;
   }
 
-  if (state.localStream) {
-    dom.selfStreamLabel.textContent = state.mute ? "Muted" : "Camera live";
-    return;
+  for (const track of stream.getTracks()) {
+    track.stop();
   }
-
-  dom.selfStreamLabel.textContent = "No media";
 }
 
 function attachTracks(peerConnection) {
@@ -261,8 +324,8 @@ async function createPeerConnection(peerId, peerName, isOfferer) {
   const peerConnection = new RTCPeerConnection(rtcConfig);
   const card = ensureRemoteCard(peerId, peerName);
   const video = card.querySelector("video");
-  const peerState = card.querySelector(".peer-state");
   const remoteStream = new MediaStream();
+  const peerState = card.querySelector(".peer-state");
 
   video.srcObject = remoteStream;
   attachTracks(peerConnection);
@@ -278,7 +341,7 @@ async function createPeerConnection(peerId, peerName, isOfferer) {
 
   peerConnection.onicecandidate = (event) => {
     if (event.candidate) {
-      sendEvent({
+      void sendEvent({
         type: "signal",
         signalType: "ice",
         targetClientId: peerId,
@@ -370,6 +433,7 @@ async function startCamera() {
   if (!state.screenStream) {
     dom.localVideo.srcObject = state.localStream;
   }
+
   updateLocalStreamLabel();
 }
 
@@ -387,7 +451,7 @@ async function startScreenShare() {
       const cameraTrack = state.localStream?.getVideoTracks()[0];
       const sender = peerConnection.getSenders().find((item) => item.track?.kind === "video");
       if (sender && cameraTrack) {
-        sender.replaceTrack(cameraTrack);
+        void sender.replaceTrack(cameraTrack);
       }
     }
     updateLocalStreamLabel();
@@ -415,13 +479,13 @@ function toggleMute() {
   for (const track of state.localStream.getAudioTracks()) {
     track.enabled = !state.mute;
   }
-  dom.muteBtn.textContent = state.mute ? "Unmute" : "Mute";
   updateLocalStreamLabel();
 }
 
 function handlePresence(event) {
   if (event.action === "join") {
     state.participants.set(event.clientId, { name: event.name });
+    appendSystemMessage(`${event.name} joined the room.`);
   }
 
   if (event.action === "leave") {
@@ -432,6 +496,7 @@ function handlePresence(event) {
       state.peers.delete(event.clientId);
     }
     removeRemoteCard(event.clientId);
+    appendSystemMessage(`${event.name} left the room.`);
   }
 
   renderPresence();
@@ -456,16 +521,21 @@ async function processEvent(event) {
     return;
   }
 
+  if (event.type === "session" && event.action === "ended") {
+    appendSystemMessage(`Session ended by ${event.endedBy}.`);
+    await leaveRoom(false, true);
+    updateSessionUi("Archived");
+    dom.archiveState.textContent = "Archived";
+    dom.sessionBannerText.textContent = "This room session was ended. The admin can reopen it later with the admin password.";
+    return;
+  }
+
   if (event.type === "chat") {
     try {
       const payload = await decryptPayload(event.envelope);
       appendMessage(payload, event.clientId === state.clientId);
     } catch (error) {
-      appendMessage({
-        name: "System",
-        text: "Could not decrypt a message. Check that everyone is using the same secret phrase.",
-        timestamp: Date.now()
-      }, false);
+      appendSystemMessage("A message could not be decrypted. Make sure every device uses the same room secret.");
     }
   }
 }
@@ -495,7 +565,6 @@ async function pollLoop() {
       if (!state.pollActive || error.name === "AbortError") {
         break;
       }
-
       await new Promise((resolve) => setTimeout(resolve, 1000));
     } finally {
       state.pollController = null;
@@ -516,20 +585,13 @@ async function notifyLeave() {
     return;
   }
 
-  const payload = JSON.stringify({
-    roomId: state.roomId,
-    clientId: state.clientId
-  });
-
-  if (navigator.sendBeacon) {
-    navigator.sendBeacon("/api/leave", new Blob([payload], { type: "application/json" }));
-    return;
-  }
-
   await fetch("/api/leave", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: payload,
+    body: JSON.stringify({
+      roomId: state.roomId,
+      clientId: state.clientId
+    }),
     keepalive: true
   });
 }
@@ -546,83 +608,151 @@ function resetRoomState() {
     removeRemoteCard(peerId);
   }
 
+  stopTrackGroup(state.localStream);
+  stopTrackGroup(state.screenStream);
+  state.localStream = null;
+  state.screenStream = null;
+  dom.localVideo.srcObject = null;
+
   state.participants.clear();
   state.roomId = "";
   state.clientId = "";
+  state.secret = "";
   state.keyMaterial = null;
-  clearMessages();
-  setTypingLabel("Nobody is typing");
+  state.isAdmin = false;
+  state.mute = false;
+
+  resetMessages();
   renderPresence();
-  setConnectedUi(false);
-  dom.roomLabel.textContent = "Not connected";
+  setTypingLabel("Nobody is typing");
   updateInviteLink();
+  updateSessionUi("Waiting");
+  dom.historyState.textContent = "Live only";
+  updateLocalStreamLabel();
+  setConnectedUi(false);
+}
+
+async function leaveRoom(notifyServer = true, silent = false) {
+  if (notifyServer) {
+    await notifyLeave().catch(() => {});
+  }
+
+  resetRoomState();
+
+  if (!silent) {
+    appendSystemMessage("You left the room.");
+  }
+}
+
+async function endSession() {
+  if (!state.clientId || !state.isAdmin) {
+    return;
+  }
+
+  if (!state.adminPassword) {
+    alert("The admin password is required to end this archived session cleanly.");
+    return;
+  }
+
+  const response = await fetch("/api/end-session", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      roomId: state.roomId,
+      clientId: state.clientId,
+      adminPassword: state.adminPassword
+    })
+  });
+
+  const result = await response.json();
+  if (!response.ok) {
+    alert(result.error || "Could not end the session.");
+    return;
+  }
 }
 
 async function joinRoom(event) {
   event.preventDefault();
 
   const nextName = dom.nameInput.value.trim();
-  const nextRoom = dom.roomInput.value.trim().toLowerCase();
-  const secret = dom.secretInput.value;
+  const nextRoomId = dom.roomInput.value.trim().toLowerCase();
+  const nextSecret = dom.secretInput.value;
+  const nextAdminPassword = dom.adminPasswordInput.value;
 
-  if (!nextName || !nextRoom || !secret) {
+  if (!nextName || !nextRoomId || !nextSecret) {
     return;
   }
 
   if (state.clientId) {
-    await notifyLeave().catch(() => {});
+    await leaveRoom(true, true);
   }
 
-  resetRoomState();
-
   state.name = nextName;
-  state.roomId = nextRoom;
-  state.keyMaterial = await deriveChatKey(secret, state.roomId);
+  state.roomId = nextRoomId;
+  state.secret = nextSecret;
+  state.adminPassword = nextAdminPassword;
+  state.keyMaterial = await deriveChatKey(state.secret, state.roomId);
 
   const response = await fetch("/api/join", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       roomId: state.roomId,
-      name: state.name
+      name: state.name,
+      adminPassword: state.adminPassword
     })
   });
+
   const result = await response.json();
 
   if (!response.ok) {
-    alert(result.error || "Could not join room.");
-    updateInviteLink();
+    resetRoomState();
+    alert(result.error || "Could not join the room.");
     return;
   }
 
   state.clientId = result.clientId;
+  state.isAdmin = result.isAdmin;
   state.participants.clear();
+
   for (const participant of result.participants) {
     state.participants.set(participant.id, { name: participant.name });
   }
 
-  dom.roomLabel.textContent = `#${state.roomId}`;
-  renderPresence();
   setConnectedUi(true);
   updateInviteLink();
-  void pollLoop();
+  updateSessionUi(result.roomState === "reopened" ? "Reopened archive" : "Live");
+  dom.historyState.textContent = result.archivedHistory?.length ? "Archive restored" : "Live only";
 
-  for (const item of result.history) {
+  if (result.roomState === "reopened") {
+    appendSystemMessage("Archived session reopened by the admin.");
+  }
+
+  for (const item of result.archivedHistory || []) {
+    try {
+      const payload = await decryptPayload(item.envelope);
+      appendMessage(payload, false);
+    } catch (error) {
+      appendSystemMessage("Some archived messages could not be decrypted with this room secret.");
+      break;
+    }
+  }
+
+  for (const item of result.history || []) {
     try {
       const payload = await decryptPayload(item.envelope);
       appendMessage(payload, item.clientId === state.clientId);
     } catch (error) {
-      appendMessage({
-        name: "System",
-        text: "A past message could not be decrypted with this secret phrase.",
-        timestamp: Date.now()
-      }, false);
+      appendSystemMessage("A live room message could not be decrypted with this room secret.");
     }
   }
 
   for (const [peerId, participant] of state.participants.entries()) {
     await createPeerConnection(peerId, participant.name, true);
   }
+
+  renderPresence();
+  void pollLoop();
 }
 
 async function sendMessage(event) {
@@ -654,12 +784,12 @@ function announceTyping() {
   clearTimeout(typingDebounce);
   typingDebounce = setTimeout(() => {
     if (state.clientId) {
-      sendEvent({ type: "typing" });
+      void sendEvent({ type: "typing" });
     }
   }, 120);
 }
 
-function applyUrlPrefill() {
+function applyRoomPrefill() {
   const params = new URLSearchParams(window.location.search);
   const room = params.get("room");
   if (room && !dom.roomInput.value) {
@@ -671,15 +801,24 @@ window.addEventListener("pagehide", () => {
   void notifyLeave().catch(() => {});
 });
 
-applyUrlPrefill();
-setConnectedUi(false);
-updateInviteLink();
+applyRoomPrefill();
+resetRoomState();
 
 dom.joinForm.addEventListener("submit", joinRoom);
 dom.chatForm.addEventListener("submit", sendMessage);
 dom.messageInput.addEventListener("input", announceTyping);
-dom.cameraBtn.addEventListener("click", startCamera);
-dom.screenBtn.addEventListener("click", startScreenShare);
+dom.leaveBtn.addEventListener("click", () => {
+  void leaveRoom(true, true);
+});
+dom.endSessionBtn.addEventListener("click", () => {
+  void endSession();
+});
+dom.cameraBtn.addEventListener("click", () => {
+  void startCamera();
+});
+dom.screenBtn.addEventListener("click", () => {
+  void startScreenShare();
+});
 dom.muteBtn.addEventListener("click", toggleMute);
 dom.copyLinkBtn.addEventListener("click", () => {
   void copyInviteLink();

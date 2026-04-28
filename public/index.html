@@ -9,65 +9,116 @@
   <body>
     <div class="shell">
       <aside class="sidebar">
-        <div class="brand">
-          <p class="eyebrow">Private by design</p>
+        <div class="brand-card">
+          <p class="eyebrow">Private multi-device room</p>
           <h1>PVT Area</h1>
-          <p class="lede">Encrypted messaging and peer-to-peer calling with screen share.</p>
+          <p class="lede">Join a room from two or more devices with a name, room number, and secret phrase. Archive sessions and reopen them later as the admin.</p>
         </div>
 
-        <form id="join-form" class="join-card">
+        <form id="join-form" class="panel join-panel">
+          <div class="panel-copy">
+            <p class="eyebrow">Session Access</p>
+            <h2>Join or reopen a room</h2>
+          </div>
+
           <label>
             <span>Name</span>
-            <input id="name" type="text" maxlength="32" placeholder="Ava" required>
+            <input id="name" type="text" maxlength="32" placeholder="Anish" required>
           </label>
+
           <label>
-            <span>Room</span>
-            <input id="room-id" type="text" maxlength="32" placeholder="founders" required>
+            <span>Room Number</span>
+            <input id="room-id" type="text" maxlength="32" placeholder="team-302" required>
           </label>
+
           <label>
-            <span>Secret phrase</span>
-            <input id="room-secret" type="password" placeholder="Shared only with your people" required>
+            <span>Secret Phrase</span>
+            <input id="room-secret" type="password" placeholder="Shared only with room members" required>
           </label>
-          <button type="submit">Join secure room</button>
-          <p class="hint">Messages are encrypted in your browser before they reach the server.</p>
+
+          <label>
+            <span>Admin Password</span>
+            <input id="admin-password" type="password" placeholder="Required to create or reopen archived sessions">
+          </label>
+
+          <div class="join-actions">
+            <button id="join-btn" type="submit">Join Room</button>
+            <button id="leave-btn" type="button" disabled>Leave</button>
+            <button id="end-session-btn" type="button" disabled>End Session</button>
+          </div>
+
+          <p class="hint">Only the admin password can create a new persistent room session or reopen an archived one. Chat messages remain encrypted in the browser with the room secret.</p>
         </form>
 
-        <section class="status-card">
-          <div>
-            <p class="label">Room</p>
-            <strong id="room-label">Not connected</strong>
+        <section class="panel invite-panel">
+          <div class="panel-copy">
+            <p class="eyebrow">Invite</p>
+            <h2>Share the room link</h2>
           </div>
-          <div>
-            <p class="label">Participants</p>
-            <strong id="presence-count">0 online</strong>
-          </div>
-          <div>
-            <p class="label">Safety</p>
-            <strong>E2EE chat enabled</strong>
-          </div>
+
+          <div class="invite-box" id="invite-link">Join a room to generate a room-specific invite link.</div>
+          <button id="copy-link-btn" type="button" disabled>Copy Invite Link</button>
+          <p class="hint">The invite link auto-targets the room number. Share the secret phrase separately.</p>
         </section>
 
-        <section class="share-card">
-          <div>
-            <p class="label">Invite Link</p>
-            <strong id="invite-link">Join a room to generate a share link.</strong>
+        <section class="panel status-panel">
+          <div class="status-row">
+            <div>
+              <p class="label">Room</p>
+              <strong id="room-label">Not connected</strong>
+            </div>
+            <div>
+              <p class="label">Mode</p>
+              <strong id="session-mode">Waiting</strong>
+            </div>
           </div>
-          <button id="copy-link-btn" type="button" disabled>Copy room link</button>
-          <p class="hint">Share this link and send the secret phrase separately. Your laptop must stay online while you host.</p>
+
+          <div class="status-row">
+            <div>
+              <p class="label">Participants</p>
+              <strong id="presence-count">0 online</strong>
+            </div>
+            <div>
+              <p class="label">Admin</p>
+              <strong id="admin-badge">Guest</strong>
+            </div>
+          </div>
+
+          <div class="status-row">
+            <div>
+              <p class="label">Archive</p>
+              <strong id="archive-state">Not restored</strong>
+            </div>
+            <div>
+              <p class="label">Typing</p>
+              <strong id="typing-indicator">Nobody is typing</strong>
+            </div>
+          </div>
         </section>
       </aside>
 
-      <main class="app">
-        <section class="video-panel">
+      <main class="workspace">
+        <section class="panel call-panel">
           <div class="panel-header">
             <div>
-              <p class="eyebrow">Calls</p>
-              <h2>Video and screen share</h2>
+              <p class="eyebrow">Call Controls</p>
+              <h2>Camera, mic, and screen share</h2>
             </div>
             <div class="controls">
-              <button id="camera-btn" disabled>Start camera</button>
-              <button id="screen-btn" disabled>Share screen</button>
-              <button id="mute-btn" disabled>Mute</button>
+              <button id="camera-btn" type="button" disabled>Start Camera</button>
+              <button id="screen-btn" type="button" disabled>Share Screen</button>
+              <button id="mute-btn" type="button" disabled>Mute Mic</button>
+            </div>
+          </div>
+
+          <div class="session-banner">
+            <div>
+              <p class="label">Session Notice</p>
+              <strong id="session-banner-text">Join a room to start the multi-device session.</strong>
+            </div>
+            <div>
+              <p class="label">Invite Ready</p>
+              <strong id="session-link-state">No</strong>
             </div>
           </div>
 
@@ -77,25 +128,33 @@
                 <span>You</span>
                 <span id="self-stream-label">No media</span>
               </div>
+              <div class="video-placeholder">Start your camera or screen share after joining the room.</div>
               <video id="local-video" autoplay playsinline muted></video>
             </article>
           </div>
         </section>
 
-        <section class="chat-panel">
+        <section class="panel chat-panel">
           <div class="panel-header">
             <div>
-              <p class="eyebrow">Messages</p>
-              <h2>Encrypted chat</h2>
+              <p class="eyebrow">Chat</p>
+              <h2>Encrypted room messages</h2>
             </div>
-            <div id="typing-indicator" class="typing-indicator">Nobody is typing</div>
+            <div class="chat-meta">
+              <span id="history-state">Live only</span>
+            </div>
           </div>
 
-          <div id="messages" class="messages"></div>
+          <div id="messages" class="messages">
+            <div class="empty-state">
+              <strong>No room messages yet</strong>
+              <p>When the admin reopens an archived session, older encrypted messages will appear here after the correct room secret decrypts them.</p>
+            </div>
+          </div>
 
           <form id="chat-form" class="chat-form">
-            <input id="message-input" type="text" maxlength="2000" placeholder="Write a message" disabled>
-            <button type="submit" disabled id="send-btn">Send</button>
+            <input id="message-input" type="text" maxlength="2000" placeholder="Join a room to send encrypted messages" disabled>
+            <button id="send-btn" type="submit" disabled>Send</button>
           </form>
         </section>
       </main>
@@ -117,6 +176,7 @@
           <span class="peer-name"></span>
           <span class="peer-state">Connecting</span>
         </div>
+        <div class="video-placeholder">Waiting for remote media…</div>
         <video autoplay playsinline></video>
       </article>
     </template>
