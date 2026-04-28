@@ -92,6 +92,15 @@ const server = http.createServer(async (req, res) => {
   try {
     const url = new URL(req.url, `http://${req.headers.host}`);
 
+    if (req.method === "GET" && url.pathname === "/healthz") {
+      sendJson(res, 200, {
+        ok: true,
+        service: "pvt-area",
+        uptime: Math.round(process.uptime())
+      });
+      return;
+    }
+
     if (req.method === "POST" && url.pathname === "/api/join") {
       const rawBody = await collectBody(req);
       const body = JSON.parse(rawBody || "{}");
@@ -229,6 +238,6 @@ const server = http.createServer(async (req, res) => {
   }
 });
 
-server.listen(PORT, () => {
+server.listen(PORT, "0.0.0.0", () => {
   console.log(`PVT Area running at http://localhost:${PORT}`);
 });

@@ -1,0 +1,9 @@
+services:
+  - name: pvt-area
+    type: web
+    runtime: node
+    plan: free
+    buildCommand: npm install
+    startCommand: npm start
+    autoDeployTrigger: commit
+    healthCheckPath: /healthz
