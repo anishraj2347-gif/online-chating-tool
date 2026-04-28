@@ -1,0 +1,117 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>CipherChat</title>
+    <link rel="stylesheet" href="/styles.css">
+  </head>
+  <body>
+    <div class="shell">
+      <aside class="sidebar">
+        <div class="brand">
+          <p class="eyebrow">Private by design</p>
+          <h1>CipherChat</h1>
+          <p class="lede">Encrypted messaging and peer-to-peer calling with screen share.</p>
+        </div>
+
+        <form id="join-form" class="join-card">
+          <label>
+            <span>Name</span>
+            <input id="name" type="text" maxlength="32" placeholder="Ava" required>
+          </label>
+          <label>
+            <span>Room</span>
+            <input id="room-id" type="text" maxlength="32" placeholder="founders" required>
+          </label>
+          <label>
+            <span>Secret phrase</span>
+            <input id="room-secret" type="password" placeholder="Shared only with your people" required>
+          </label>
+          <button type="submit">Join secure room</button>
+          <p class="hint">Messages are encrypted in your browser before they reach the server.</p>
+        </form>
+
+        <section class="status-card">
+          <div>
+            <p class="label">Room</p>
+            <strong id="room-label">Not connected</strong>
+          </div>
+          <div>
+            <p class="label">Participants</p>
+            <strong id="presence-count">0 online</strong>
+          </div>
+          <div>
+            <p class="label">Safety</p>
+            <strong>E2EE chat enabled</strong>
+          </div>
+        </section>
+      </aside>
+
+      <main class="app">
+        <section class="video-panel">
+          <div class="panel-header">
+            <div>
+              <p class="eyebrow">Calls</p>
+              <h2>Video and screen share</h2>
+            </div>
+            <div class="controls">
+              <button id="camera-btn" disabled>Start camera</button>
+              <button id="screen-btn" disabled>Share screen</button>
+              <button id="mute-btn" disabled>Mute</button>
+            </div>
+          </div>
+
+          <div id="video-grid" class="video-grid">
+            <article class="video-card self">
+              <div class="video-meta">
+                <span>You</span>
+                <span id="self-stream-label">No media</span>
+              </div>
+              <video id="local-video" autoplay playsinline muted></video>
+            </article>
+          </div>
+        </section>
+
+        <section class="chat-panel">
+          <div class="panel-header">
+            <div>
+              <p class="eyebrow">Messages</p>
+              <h2>Encrypted chat</h2>
+            </div>
+            <div id="typing-indicator" class="typing-indicator">Nobody is typing</div>
+          </div>
+
+          <div id="messages" class="messages"></div>
+
+          <form id="chat-form" class="chat-form">
+            <input id="message-input" type="text" maxlength="2000" placeholder="Write a message" disabled>
+            <button type="submit" disabled id="send-btn">Send</button>
+          </form>
+        </section>
+      </main>
+    </div>
+
+    <template id="message-template">
+      <article class="message">
+        <div class="message-head">
+          <strong class="message-name"></strong>
+          <span class="message-time"></span>
+        </div>
+        <p class="message-text"></p>
+      </article>
+    </template>
+
+    <template id="remote-video-template">
+      <article class="video-card">
+        <div class="video-meta">
+          <span class="peer-name"></span>
+          <span class="peer-state">Connecting</span>
+        </div>
+        <video autoplay playsinline></video>
+      </article>
+    </template>
+
+    <script type="module" src="/app.js"></script>
+  </body>
+  </html>

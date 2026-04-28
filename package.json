@@ -1,0 +1,9 @@
+{
+  "name": "cipher-chat",
+  "version": "1.0.0",
+  "private": true,
+  "description": "End-to-end encrypted chat and calling prototype",
+  "scripts": {
+    "start": "node server.js"
+  }
+}
