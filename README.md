@@ -16,6 +16,35 @@ node server.js
 
 Then open [http://localhost:3000](http://localhost:3000) in two browser tabs or devices on the same network.
 
+## Share from your laptop
+
+If you want your laptop to act as the host and generate a public link for someone on a different network:
+
+```bash
+node scripts/share.js
+```
+
+What it does:
+
+- Starts the local Node server if it is not already running
+- Downloads a local copy of `cloudflared` for macOS if needed
+- Creates a temporary public HTTPS link to your laptop
+
+How to use it:
+
+1. Run `node scripts/share.js`
+2. Open the printed public URL on your laptop
+3. Join a room
+4. Use the `Copy room link` button in the sidebar
+5. Send that room link to the second user
+6. Send the room's secret phrase separately
+
+Important notes:
+
+- Your laptop must stay powered on and connected to the internet while hosting
+- The generated public link is temporary and meant for testing/share sessions
+- This setup relays app access through a tunnel, but chat messages are still encrypted in the browser before relay
+
 ## Deploy on Render
 
 This repo includes a ready-to-use [`render.yaml`](./render.yaml) for a Render web service.

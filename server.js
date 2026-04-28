@@ -5,6 +5,9 @@ const { randomUUID } = require("crypto");
 
 const PORT = process.env.PORT || 3000;
 const PUBLIC_DIR = path.join(__dirname, "public");
+const POLL_TIMEOUT_MS = 25000;
+const CLIENT_TTL_MS = 45000;
+const CLEANUP_INTERVAL_MS = 10000;
 
 const MIME_TYPES = {
   ".html": "text/html; charset=utf-8",
@@ -38,18 +41,6 @@ function sendJson(res, statusCode, payload) {
   res.end(JSON.stringify(payload));
 }
 
-function broadcast(room, event, excludeClientId) {
-  const payload = `data: ${JSON.stringify(event)}\n\n`;
-
-  for (const [clientId, client] of room.clients.entries()) {
-    if (excludeClientId && clientId === excludeClientId) {
-      continue;
-    }
-
-    client.res.write(payload);
-  }
-}
-
 function collectBody(req) {
   return new Promise((resolve, reject) => {
     let data = "";
@@ -62,6 +53,82 @@ function collectBody(req) {
     req.on("end", () => resolve(data));
     req.on("error", reject);
   });
+}
+
+function touchClient(client) {
+  client.lastSeenAt = Date.now();
+}
+
+function clearPendingPoll(client) {
+  if (client.pendingTimer) {
+    clearTimeout(client.pendingTimer);
+    client.pendingTimer = null;
+  }
+
+  client.pendingRes = null;
+}
+
+function flushClientQueue(client) {
+  if (!client.pendingRes || client.eventQueue.length === 0) {
+    return;
+  }
+
+  const res = client.pendingRes;
+  const events = client.eventQueue.splice(0);
+  clearPendingPoll(client);
+  sendJson(res, 200, { events });
+}
+
+function queueEvent(client, event) {
+  client.eventQueue.push(event);
+  flushClientQueue(client);
+}
+
+function broadcast(room, event, excludeClientId) {
+  for (const [clientId, client] of room.clients.entries()) {
+    if (excludeClientId && clientId === excludeClientId) {
+      continue;
+    }
+
+    queueEvent(client, event);
+  }
+}
+
+function removeClient(roomId, clientId, notify) {
+  const room = rooms.get(roomId);
+  const client = room?.clients.get(clientId);
+
+  if (!room || !client) {
+    return;
+  }
+
+  clearPendingPoll(client);
+  room.clients.delete(clientId);
+
+  if (notify) {
+    broadcast(room, {
+      type: "presence",
+      action: "leave",
+      clientId,
+      name: client.name
+    });
+  }
+
+  if (room.clients.size === 0) {
+    rooms.delete(roomId);
+  }
+}
+
+function pruneStaleClients() {
+  const now = Date.now();
+
+  for (const [roomId, room] of rooms.entries()) {
+    for (const [clientId, client] of room.clients.entries()) {
+      if (now - client.lastSeenAt > CLIENT_TTL_MS) {
+        removeClient(roomId, clientId, true);
+      }
+    }
+  }
 }
 
 function serveStatic(req, res) {
@@ -87,6 +154,8 @@ function serveStatic(req, res) {
     res.end(file);
   });
 }
+
+setInterval(pruneStaleClients, CLEANUP_INTERVAL_MS).unref();
 
 const server = http.createServer(async (req, res) => {
   try {
@@ -118,7 +187,10 @@ const server = http.createServer(async (req, res) => {
       room.clients.set(clientId, {
         id: clientId,
         name,
-        res: null
+        eventQueue: [],
+        pendingRes: null,
+        pendingTimer: null,
+        lastSeenAt: Date.now()
       });
 
       const participants = Array.from(room.clients.values())
@@ -140,7 +212,7 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
-    if (req.method === "GET" && url.pathname === "/api/stream") {
+    if (req.method === "GET" && url.pathname === "/api/poll") {
       const roomId = String(url.searchParams.get("roomId") || "").trim().toLowerCase();
       const clientId = String(url.searchParams.get("clientId") || "").trim();
 
@@ -149,42 +221,51 @@ const server = http.createServer(async (req, res) => {
         return;
       }
 
-      const room = getRoom(roomId);
-      const client = room.clients.get(clientId);
+      const room = rooms.get(roomId);
+      const client = room?.clients.get(clientId);
 
-      if (!client) {
+      if (!room || !client) {
         sendJson(res, 404, { error: "Client not found." });
         return;
       }
 
-      res.writeHead(200, {
-        "Content-Type": "text/event-stream; charset=utf-8",
-        "Cache-Control": "no-store",
-        Connection: "keep-alive"
-      });
-      res.write("retry: 1500\n\n");
+      touchClient(client);
 
-      client.res = res;
+      if (client.eventQueue.length > 0) {
+        sendJson(res, 200, { events: client.eventQueue.splice(0) });
+        return;
+      }
+
+      clearPendingPoll(client);
+      client.pendingRes = res;
+      client.pendingTimer = setTimeout(() => {
+        if (client.pendingRes === res) {
+          clearPendingPoll(client);
+          sendJson(res, 200, { events: [] });
+        }
+      }, POLL_TIMEOUT_MS);
 
       req.on("close", () => {
-        const activeRoom = rooms.get(roomId);
-        const activeClient = activeRoom?.clients.get(clientId);
-        if (!activeRoom || !activeClient) {
-          return;
-        }
-
-        activeRoom.clients.delete(clientId);
-        broadcast(activeRoom, {
-          type: "presence",
-          action: "leave",
-          clientId,
-          name: activeClient.name
-        });
-
-        if (activeRoom.clients.size === 0) {
-          rooms.delete(roomId);
+        if (client.pendingRes === res) {
+          clearPendingPoll(client);
         }
       });
+      return;
+    }
+
+    if (req.method === "POST" && url.pathname === "/api/leave") {
+      const rawBody = await collectBody(req);
+      const body = JSON.parse(rawBody || "{}");
+      const roomId = String(body.roomId || "").trim().toLowerCase();
+      const clientId = String(body.clientId || "").trim();
+
+      if (!roomId || !clientId) {
+        sendJson(res, 400, { error: "Missing roomId or clientId." });
+        return;
+      }
+
+      removeClient(roomId, clientId, true);
+      sendJson(res, 200, { ok: true });
       return;
     }
 
@@ -199,13 +280,15 @@ const server = http.createServer(async (req, res) => {
         return;
       }
 
-      const room = getRoom(roomId);
-      const sender = room.clients.get(clientId);
+      const room = rooms.get(roomId);
+      const sender = room?.clients.get(clientId);
 
-      if (!sender) {
+      if (!room || !sender) {
         sendJson(res, 404, { error: "Unknown sender." });
         return;
       }
+
+      touchClient(sender);
 
       const outbound = {
         ...event,
@@ -221,8 +304,8 @@ const server = http.createServer(async (req, res) => {
 
       if (event.targetClientId) {
         const target = room.clients.get(event.targetClientId);
-        if (target?.res) {
-          target.res.write(`data: ${JSON.stringify(outbound)}\n\n`);
+        if (target) {
+          queueEvent(target, outbound);
         }
       } else {
         broadcast(room, outbound, clientId);

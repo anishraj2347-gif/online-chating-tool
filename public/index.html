@@ -7,114 +7,62 @@
     <link rel="stylesheet" href="/styles.css">
   </head>
   <body>
-    <div class="ambient ambient-one" aria-hidden="true"></div>
-    <div class="ambient ambient-two" aria-hidden="true"></div>
-    <div class="grid-haze" aria-hidden="true"></div>
-
     <div class="shell">
       <aside class="sidebar">
         <div class="brand">
-          <div class="brand-orbit" aria-hidden="true">
-            <span></span>
-            <span></span>
-            <span></span>
-          </div>
-          <p class="eyebrow">Encrypted Field Room</p>
+          <p class="eyebrow">Private by design</p>
           <h1>PVT Area</h1>
-          <p class="lede">A custom command center for private messaging, peer-to-peer calling, and live screen share.</p>
-          <div class="hero-chips">
-            <span class="chip">AES-GCM chat</span>
-            <span class="chip">WebRTC calls</span>
-            <span class="chip">Live screen relay</span>
-          </div>
+          <p class="lede">Encrypted messaging and peer-to-peer calling with screen share.</p>
         </div>
 
         <form id="join-form" class="join-card">
-          <div class="card-intro">
-            <p class="eyebrow">Room Access</p>
-            <h2>Lock into a private room</h2>
-          </div>
-
           <label>
             <span>Name</span>
-            <input id="name" type="text" maxlength="32" placeholder="Anish" required>
+            <input id="name" type="text" maxlength="32" placeholder="Ava" required>
           </label>
           <label>
             <span>Room</span>
-            <input id="room-id" type="text" maxlength="32" placeholder="design-lab" required>
+            <input id="room-id" type="text" maxlength="32" placeholder="founders" required>
           </label>
           <label>
             <span>Secret phrase</span>
-            <input id="room-secret" type="password" placeholder="Only share this with your group" required>
+            <input id="room-secret" type="password" placeholder="Shared only with your people" required>
           </label>
-
-          <button id="join-btn" type="submit">Create or join room</button>
-          <p class="hint">Use the same room name and secret phrase on every device to unlock the same encrypted room.</p>
+          <button type="submit">Join secure room</button>
+          <p class="hint">Messages are encrypted in your browser before they reach the server.</p>
         </form>
 
         <section class="status-card">
-          <div class="section-head">
-            <div>
-              <p class="eyebrow">Room Telemetry</p>
-              <h3>Live room status</h3>
-            </div>
-            <span class="status-chip">Browser-secured</span>
+          <div>
+            <p class="label">Room</p>
+            <strong id="room-label">Not connected</strong>
           </div>
-
-          <div class="stat-grid">
-            <div class="stat-tile">
-              <p class="label">Room</p>
-              <strong id="room-label">Not connected</strong>
-            </div>
-            <div class="stat-tile">
-              <p class="label">People</p>
-              <strong id="presence-count">0 online</strong>
-            </div>
-            <div class="stat-tile">
-              <p class="label">Safety</p>
-              <strong>End-to-end ready</strong>
-            </div>
+          <div>
+            <p class="label">Participants</p>
+            <strong id="presence-count">0 online</strong>
+          </div>
+          <div>
+            <p class="label">Safety</p>
+            <strong>E2EE chat enabled</strong>
           </div>
         </section>
 
-        <section class="security-card">
-          <div class="section-head">
-            <div>
-              <p class="eyebrow">Safety Code</p>
-              <h3>Verify your room</h3>
-            </div>
-            <span class="signal-pill">Local only</span>
+        <section class="share-card">
+          <div>
+            <p class="label">Invite Link</p>
+            <strong id="invite-link">Join a room to generate a share link.</strong>
           </div>
-          <strong id="safety-code" class="safety-code">---- ---- ---- ----</strong>
-          <p class="hint">Compare this code out of band with the other participants to confirm everyone used the same secret phrase.</p>
-        </section>
-
-        <section class="roster-card">
-          <div class="section-head">
-            <div>
-              <p class="eyebrow">Roster</p>
-              <h3>Who is here</h3>
-            </div>
-          </div>
-
-          <ul id="participant-list" class="participant-list">
-            <li class="participant placeholder">
-              <span class="participant-avatar">Y</span>
-              <div class="participant-copy">
-                <strong>You</strong>
-                <span>Join a room to see live peers.</span>
-              </div>
-            </li>
-          </ul>
+          <button id="copy-link-btn" type="button" disabled>Copy room link</button>
+          <p class="hint">Share this link and send the secret phrase separately. Your laptop must stay online while you host.</p>
         </section>
       </aside>
 
       <main class="app">
         <section class="video-panel">
-          <div class="panel-header stage-header">
+          <div class="panel-header">
             <div>
-              <p class="eyebrow">Live Stage</p>
-              <h2>Calls, camera, and screen share</h2>
+              <p class="eyebrow">Calls</p>
+              <h2>Video and screen share</h2>
             </div>
             <div class="controls">
               <button id="camera-btn" disabled>Start camera</button>
@@ -123,27 +71,11 @@
             </div>
           </div>
 
-          <div class="stage-banner">
-            <div class="banner-lock">
-              <span class="status-light" aria-hidden="true"></span>
-              <strong id="connection-state">Offline</strong>
-            </div>
-            <div class="stage-pills">
-              <span id="room-badge" class="stage-pill">No room joined</span>
-              <span class="stage-pill">Peer-to-peer media</span>
-            </div>
-          </div>
-
           <div id="video-grid" class="video-grid">
             <article class="video-card self">
-              <div class="video-veil" aria-hidden="true"></div>
               <div class="video-meta">
                 <span>You</span>
                 <span id="self-stream-label">No media</span>
-              </div>
-              <div class="video-placeholder">
-                <p>Camera offline</p>
-                <span>Start your camera or share a screen when your room is ready.</span>
               </div>
               <video id="local-video" autoplay playsinline muted></video>
             </article>
@@ -151,30 +83,20 @@
         </section>
 
         <section class="chat-panel">
-          <div class="panel-header chat-header">
+          <div class="panel-header">
             <div>
-              <p class="eyebrow">Encrypted Chat</p>
-              <h2>Conversation lane</h2>
+              <p class="eyebrow">Messages</p>
+              <h2>Encrypted chat</h2>
             </div>
-            <div class="chat-meta">
-              <div id="typing-indicator" class="typing-indicator">Nobody is typing</div>
-              <span id="message-count" class="stage-pill stage-pill-soft">0 messages</span>
-            </div>
+            <div id="typing-indicator" class="typing-indicator">Nobody is typing</div>
           </div>
 
-          <div id="messages" class="messages">
-            <div id="empty-state" class="empty-state">
-              <p class="empty-title">No messages yet</p>
-              <p class="empty-copy">Join a room, then open the same room on another tab or device to start the encrypted conversation.</p>
-            </div>
-          </div>
+          <div id="messages" class="messages"></div>
 
           <form id="chat-form" class="chat-form">
-            <input id="message-input" type="text" maxlength="2000" placeholder="Join a room to start messaging" disabled>
-            <button type="submit" disabled id="send-btn">Send securely</button>
+            <input id="message-input" type="text" maxlength="2000" placeholder="Write a message" disabled>
+            <button type="submit" disabled id="send-btn">Send</button>
           </form>
-
-          <p class="composer-note">Messages are encrypted in your browser before they are relayed.</p>
         </section>
       </main>
     </div>
@@ -191,14 +113,9 @@
 
     <template id="remote-video-template">
       <article class="video-card">
-        <div class="video-veil" aria-hidden="true"></div>
         <div class="video-meta">
           <span class="peer-name"></span>
           <span class="peer-state">Connecting</span>
-        </div>
-        <div class="video-placeholder">
-          <p>Waiting for media</p>
-          <span>The peer stream will appear here when available.</span>
         </div>
         <video autoplay playsinline></video>
       </article>
