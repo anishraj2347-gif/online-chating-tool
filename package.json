@@ -1,8 +1,8 @@
 {
-  "name": "cipher-chat",
+  "name": "pvt-area",
   "version": "1.0.0",
   "private": true,
-  "description": "End-to-end encrypted chat and calling prototype",
+  "description": "PVT Area end-to-end encrypted chat and calling prototype",
   "scripts": {
     "start": "node server.js"
   }

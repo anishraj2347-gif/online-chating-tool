@@ -230,5 +230,5 @@ const server = http.createServer(async (req, res) => {
 });
 
 server.listen(PORT, () => {
-  console.log(`CipherChat running at http://localhost:${PORT}`);
+  console.log(`PVT Area running at http://localhost:${PORT}`);
 });

@@ -1,6 +1,6 @@
-# CipherChat
+# PVT Area
 
-CipherChat is a lightweight prototype for an encrypted messaging and calling app inspired by WhatsApp-style core features:
+PVT Area is a lightweight prototype for an encrypted messaging and calling app inspired by WhatsApp-style core features:
 
 - End-to-end encrypted text chat using `AES-GCM` in the browser
 - Peer-to-peer video and audio calling with WebRTC

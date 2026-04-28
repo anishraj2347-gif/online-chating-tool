@@ -1,5 +1,6 @@
 const dom = {
   joinForm: document.querySelector("#join-form"),
+  joinBtn: document.querySelector("#join-btn"),
   chatForm: document.querySelector("#chat-form"),
   nameInput: document.querySelector("#name"),
   roomInput: document.querySelector("#room-id"),
@@ -7,15 +8,22 @@ const dom = {
   messageInput: document.querySelector("#message-input"),
   sendBtn: document.querySelector("#send-btn"),
   messages: document.querySelector("#messages"),
+  emptyState: document.querySelector("#empty-state"),
   roomLabel: document.querySelector("#room-label"),
+  roomBadge: document.querySelector("#room-badge"),
   presenceCount: document.querySelector("#presence-count"),
+  participantList: document.querySelector("#participant-list"),
+  safetyCode: document.querySelector("#safety-code"),
+  messageCount: document.querySelector("#message-count"),
   typingIndicator: document.querySelector("#typing-indicator"),
+  connectionState: document.querySelector("#connection-state"),
   cameraBtn: document.querySelector("#camera-btn"),
   screenBtn: document.querySelector("#screen-btn"),
   muteBtn: document.querySelector("#mute-btn"),
   localVideo: document.querySelector("#local-video"),
   selfStreamLabel: document.querySelector("#self-stream-label"),
   videoGrid: document.querySelector("#video-grid"),
+  localCard: document.querySelector(".video-card.self"),
   messageTemplate: document.querySelector("#message-template"),
   remoteVideoTemplate: document.querySelector("#remote-video-template")
 };
@@ -38,8 +46,17 @@ const state = {
   localStream: null,
   screenStream: null,
   typingTimeout: null,
-  mute: false
+  mute: false,
+  messageCount: 0
 };
+
+function initials(name) {
+  return (name || "?").trim().charAt(0).toUpperCase() || "?";
+}
+
+function formatMessageCount(count) {
+  return `${count} ${count === 1 ? "message" : "messages"}`;
+}
 
 async function deriveChatKey(secret, roomId) {
   const encoder = new TextEncoder();
@@ -63,6 +80,14 @@ async function deriveChatKey(secret, roomId) {
     false,
     ["encrypt", "decrypt"]
   );
+}
+
+async function buildSafetyCode(secret, roomId) {
+  const encoder = new TextEncoder();
+  const payload = encoder.encode(`cipherchat:verify:${roomId}:${secret}`);
+  const digest = await crypto.subtle.digest("SHA-256", payload);
+  const hex = Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
+  return hex.slice(0, 16).match(/.{1,4}/g).join(" ");
 }
 
 function toBase64(bytes) {
@@ -102,21 +127,87 @@ async function decryptPayload(envelope) {
   return JSON.parse(decoder.decode(plainBuffer));
 }
 
+function updateMessageCount() {
+  dom.messageCount.textContent = formatMessageCount(state.messageCount);
+  dom.emptyState.hidden = state.messageCount > 0;
+}
+
+function setTypingLabel(label) {
+  dom.typingIndicator.textContent = label;
+}
+
+function createParticipantItem(name, detail, isSelf) {
+  const item = document.createElement("li");
+  item.className = `participant${isSelf ? " self" : ""}`;
+
+  const avatar = document.createElement("span");
+  avatar.className = "participant-avatar";
+  avatar.textContent = initials(name);
+
+  const copy = document.createElement("div");
+  copy.className = "participant-copy";
+
+  const title = document.createElement("strong");
+  title.textContent = name;
+
+  const subtitle = document.createElement("span");
+  subtitle.textContent = detail;
+
+  copy.append(title, subtitle);
+  item.append(avatar, copy);
+  return item;
+}
+
+function renderPresence() {
+  const connected = Boolean(state.clientId);
+
+  if (!connected) {
+    dom.presenceCount.textContent = "0 online";
+    dom.participantList.innerHTML = "";
+    dom.participantList.appendChild(createParticipantItem("You", "Join a room to see live peers.", false));
+    dom.participantList.firstElementChild.classList.add("placeholder");
+    return;
+  }
+
+  dom.presenceCount.textContent = `${state.participants.size + 1} online`;
+  dom.participantList.innerHTML = "";
+  dom.participantList.appendChild(createParticipantItem(`${state.name} (You)`, "This device is active in the room.", true));
+
+  const peers = Array.from(state.participants.entries()).sort((a, b) => a[1].name.localeCompare(b[1].name));
+  for (const [, participant] of peers) {
+    dom.participantList.appendChild(createParticipantItem(participant.name, "Live in this encrypted room.", false));
+  }
+}
+
 function setConnectedUi(connected) {
   dom.messageInput.disabled = !connected;
   dom.sendBtn.disabled = !connected;
   dom.cameraBtn.disabled = !connected;
   dom.screenBtn.disabled = !connected;
   dom.muteBtn.disabled = !connected;
+
+  dom.messageInput.placeholder = connected ? `Message #${state.roomId}` : "Join a room to start messaging";
+  dom.joinBtn.textContent = connected ? "Switch room" : "Create or join room";
+  dom.roomLabel.textContent = connected ? `#${state.roomId}` : "Not connected";
+  dom.roomBadge.textContent = connected ? `Room #${state.roomId}` : "No room joined";
+  dom.connectionState.textContent = connected ? "Secure room active" : "Offline";
+
+  document.body.classList.toggle("is-connected", connected);
+  renderPresence();
 }
 
-function renderPresence() {
-  dom.presenceCount.textContent = `${state.participants.size + 1} online`;
+function clearMessages() {
+  for (const node of dom.messages.querySelectorAll(".message")) {
+    node.remove();
+  }
+  state.messageCount = 0;
+  updateMessageCount();
 }
 
 function appendMessage(message, isSelf) {
   const node = dom.messageTemplate.content.firstElementChild.cloneNode(true);
   node.classList.toggle("self", isSelf);
+  node.dataset.initial = initials(message.name);
   node.querySelector(".message-name").textContent = message.name;
   node.querySelector(".message-time").textContent = new Date(message.timestamp).toLocaleTimeString([], {
     hour: "2-digit",
@@ -124,11 +215,10 @@ function appendMessage(message, isSelf) {
   });
   node.querySelector(".message-text").textContent = message.text;
   dom.messages.appendChild(node);
-  dom.messages.scrollTop = dom.messages.scrollHeight;
-}
 
-function setTypingLabel(label) {
-  dom.typingIndicator.textContent = label;
+  state.messageCount += 1;
+  updateMessageCount();
+  dom.messages.scrollTop = dom.messages.scrollHeight;
 }
 
 async function sendEvent(event) {
@@ -145,7 +235,9 @@ async function sendEvent(event) {
 
 function ensureRemoteCard(peerId, name) {
   if (state.remoteCards.has(peerId)) {
-    return state.remoteCards.get(peerId);
+    const existing = state.remoteCards.get(peerId);
+    existing.querySelector(".peer-name").textContent = name || "Peer";
+    return existing;
   }
 
   const node = dom.remoteVideoTemplate.content.firstElementChild.cloneNode(true);
@@ -164,18 +256,23 @@ function removeRemoteCard(peerId) {
   }
 }
 
+function updateLocalCardState() {
+  dom.localCard.classList.toggle("has-stream", Boolean(state.localStream || state.screenStream));
+}
+
 function updateLocalStreamLabel() {
   if (state.screenStream) {
     dom.selfStreamLabel.textContent = "Sharing screen";
-    return;
-  }
-
-  if (state.localStream) {
+  } else if (state.localStream) {
     dom.selfStreamLabel.textContent = state.mute ? "Muted" : "Camera live";
-    return;
+  } else {
+    dom.selfStreamLabel.textContent = "No media";
   }
 
-  dom.selfStreamLabel.textContent = "No media";
+  dom.cameraBtn.textContent = state.localStream ? "Camera ready" : "Start camera";
+  dom.screenBtn.textContent = state.screenStream ? "Screen live" : "Share screen";
+  dom.muteBtn.textContent = state.mute ? "Unmute" : "Mute";
+  updateLocalCardState();
 }
 
 function attachTracks(peerConnection) {
@@ -225,6 +322,7 @@ async function createPeerConnection(peerId, peerName, isOfferer) {
         remoteStream.addTrack(track);
       }
     }
+    card.classList.add("has-stream");
     peerState.textContent = "Live";
   };
 
@@ -306,6 +404,21 @@ async function handleSignal(event) {
   }
 }
 
+async function restorePrimaryVideoTrack() {
+  state.screenStream = null;
+  dom.localVideo.srcObject = state.localStream;
+
+  for (const peerConnection of state.peers.values()) {
+    const cameraTrack = state.localStream?.getVideoTracks()[0] || null;
+    const sender = peerConnection.getSenders().find((item) => item.track?.kind === "video");
+    if (sender) {
+      await sender.replaceTrack(cameraTrack);
+    }
+  }
+
+  updateLocalStreamLabel();
+}
+
 async function startCamera() {
   if (!state.localStream) {
     state.localStream = await navigator.mediaDevices.getUserMedia({
@@ -333,16 +446,7 @@ async function startScreenShare() {
 
   const [screenTrack] = state.screenStream.getVideoTracks();
   screenTrack.onended = () => {
-    state.screenStream = null;
-    dom.localVideo.srcObject = state.localStream;
-    for (const peerConnection of state.peers.values()) {
-      const cameraTrack = state.localStream?.getVideoTracks()[0];
-      const sender = peerConnection.getSenders().find((item) => item.track?.kind === "video");
-      if (sender && cameraTrack) {
-        sender.replaceTrack(cameraTrack);
-      }
-    }
-    updateLocalStreamLabel();
+    void restorePrimaryVideoTrack();
   };
 
   for (const peerConnection of state.peers.values()) {
@@ -367,7 +471,6 @@ function toggleMute() {
   for (const track of state.localStream.getAudioTracks()) {
     track.enabled = !state.mute;
   }
-  dom.muteBtn.textContent = state.mute ? "Unmute" : "Mute";
   updateLocalStreamLabel();
 }
 
@@ -391,6 +494,12 @@ function handlePresence(event) {
 
 async function connectStream() {
   state.eventSource = new EventSource(`/api/stream?roomId=${encodeURIComponent(state.roomId)}&clientId=${encodeURIComponent(state.clientId)}`);
+
+  state.eventSource.onerror = () => {
+    if (state.clientId) {
+      dom.connectionState.textContent = "Signal reconnecting";
+    }
+  };
 
   state.eventSource.onmessage = async (message) => {
     const event = JSON.parse(message.data);
@@ -428,18 +537,48 @@ async function connectStream() {
   };
 }
 
+function teardownRoomState() {
+  if (state.eventSource) {
+    state.eventSource.close();
+    state.eventSource = null;
+  }
+
+  for (const peerConnection of state.peers.values()) {
+    peerConnection.close();
+  }
+  state.peers.clear();
+
+  for (const peerId of Array.from(state.remoteCards.keys())) {
+    removeRemoteCard(peerId);
+  }
+
+  state.participants.clear();
+  state.clientId = "";
+  clearMessages();
+  setTypingLabel("Nobody is typing");
+  setConnectedUi(false);
+  renderPresence();
+}
+
 async function joinRoom(event) {
   event.preventDefault();
 
-  state.name = dom.nameInput.value.trim();
-  state.roomId = dom.roomInput.value.trim().toLowerCase();
+  const nextName = dom.nameInput.value.trim();
+  const nextRoomId = dom.roomInput.value.trim().toLowerCase();
   const secret = dom.secretInput.value;
 
-  if (!state.name || !state.roomId || !secret) {
+  if (!nextName || !nextRoomId || !secret) {
     return;
   }
 
+  teardownRoomState();
+
+  state.name = nextName;
+  state.roomId = nextRoomId;
   state.keyMaterial = await deriveChatKey(secret, state.roomId);
+  dom.safetyCode.textContent = await buildSafetyCode(secret, state.roomId);
+  dom.roomBadge.textContent = `Room #${state.roomId}`;
+  dom.connectionState.textContent = "Locking room";
 
   const response = await fetch("/api/join", {
     method: "POST",
@@ -453,6 +592,8 @@ async function joinRoom(event) {
 
   if (!response.ok) {
     alert(result.error || "Could not join room.");
+    setConnectedUi(false);
+    dom.safetyCode.textContent = "---- ---- ---- ----";
     return;
   }
 
@@ -462,8 +603,6 @@ async function joinRoom(event) {
     state.participants.set(participant.id, { name: participant.name });
   }
 
-  dom.roomLabel.textContent = `#${state.roomId}`;
-  renderPresence();
   setConnectedUi(true);
   await connectStream();
 
@@ -513,9 +652,16 @@ let typingDebounce;
 function announceTyping() {
   clearTimeout(typingDebounce);
   typingDebounce = setTimeout(() => {
-    sendEvent({ type: "typing" });
+    if (state.clientId) {
+      sendEvent({ type: "typing" });
+    }
   }, 120);
 }
+
+setConnectedUi(false);
+clearMessages();
+renderPresence();
+updateLocalStreamLabel();
 
 dom.joinForm.addEventListener("submit", joinRoom);
 dom.chatForm.addEventListener("submit", sendMessage);
